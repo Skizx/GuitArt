@@ -1,17 +1,41 @@
-import multiparty from 'multiparty'
-import { resolve } from 'styled-jsx/css';
+import multiparty from 'multiparty';
+import {PutObjectCommand, S3Client} from '@aws-sdk/client-s3';
+import fs from 'fs';
+import mime from 'mime-types';
+
+const bucketName = "guitart-bucket";
 
 export default async function HandleUpload(req, res) {
     const form = new multiparty.Form();
     const {fields, files} = await new Promise((resolve, reject) => {
-        form.parse(req, async (err, fields, files) => {
+        form.parse(req, (err, fields, files) => {
             if(err) reject(err);
             resolve({fields, files});
         });
-    })
-    console.log(files.file.length);
-    console.log(fields);
-    res.json("OK")
+    });
+    const client = new S3Client({
+        region: 'eu-west-3',
+        credentials: {
+            accessKeyId: process.env.S3_ACCES_KEY,
+            secretAccessKey: process.env.S3_SECRET_KEY
+        },
+    });
+    const links = [];
+    for (const file of files.file) {
+        const ext = file.originalFilename.split('.').pop()
+        const newFileName = Date.now() + '.' + ext;
+        console.log({ext, file});
+        await client.send(new PutObjectCommand({
+            Bucket: bucketName,
+            Key: newFileName,
+            Body: fs.readFileSync(file.path),
+            ACL: 'public-read',
+            ContentType: mime.lookup(file.path)
+        }));
+        const link = `https://${bucketName}.s3.amazonaws.com/${newFileName}`;
+        links.push(link)
+    }
+    return res.json({links});
 }
 
 // Configuration de bodyParser pour empecher de transformer la requete en json
